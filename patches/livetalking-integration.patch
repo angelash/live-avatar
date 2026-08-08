@@ -1,0 +1,100 @@
+diff --git a/app.py b/app.py
+index 7e076c2..7998215 100644
+--- a/app.py
++++ b/app.py
+@@ -206,7 +206,7 @@ def main():
+         loop = asyncio.new_event_loop()
+         asyncio.set_event_loop(loop)
+         loop.run_until_complete(runner.setup())
+-        site = web.TCPSite(runner, '0.0.0.0', opt.listenport)
++        site = web.TCPSite(runner, opt.listenhost, opt.listenport)
+         loop.run_until_complete(site.start())
+         if opt.transport=='rtcpush':
+             for k in range(opt.max_session):
+diff --git a/config.py b/config.py
+index 6839ce0..dd124b8 100644
+--- a/config.py
++++ b/config.py
+@@ -88,6 +88,8 @@ def parse_args():
+     parser.add_argument('--max_session', type=int, default=5)
+     parser.add_argument('--listenport', type=int, default=8010,
+                         help="web listen port")
++    parser.add_argument('--listenhost', type=str, default='0.0.0.0',
++                        help="web listen host (0.0.0.0=all interfaces, 127.0.0.1=local only)")
+ 
+     # ─── 虚拟摄像头 ───────────────────────────────────────────────────
+     parser.add_argument('--audio_output_device', type=int, default=None,
+diff --git a/server/routes.py b/server/routes.py
+index 8037d06..38cca25 100644
+--- a/server/routes.py
++++ b/server/routes.py
+@@ -107,6 +107,61 @@ async def humanaudio(request):
+         return json_error(str(e))
+ 
+ 
++async def humanpcm(request):
++    """流式驱动：接收 16kHz int16 PCM 音频体，切块后驱动口型。
++
++    与 /humanaudio 不同，本接口接收裸 PCM 而非 WAV 容器，适合
++    s2s 管道边生成边推流。body 为二进制 PCM16 LE（mono, 16kHz）。
++    可选 query 参数 rate/sample_rate 指定输入采样率（默认 16000），
++    非 16kHz 时自动重采样。
++    """
++    import numpy as np
++    import resampy
++    try:
++        raw = await request.read()
++        params = request.query
++        sessionid = params.get('sessionid', '')
++        if not sessionid:
++            sessionid = request.headers.get('X-Session-ID', '')
++        if not sessionid:
++            return json_error("sessionid required")
++
++        in_rate = int(params.get('rate', params.get('sample_rate', 16000)))
++        avatar_session = get_session(request, sessionid)
++        if avatar_session is None:
++            return json_error("session not found")
++
++        if not raw:
++            return json_ok()
++
++        pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
++        if pcm.shape[0] == 0:
++            return json_ok()
++
++        if in_rate != avatar_session.sample_rate:
++            pcm = resampy.resample(pcm, sr_orig=in_rate, sr_new=avatar_session.sample_rate)
++
++        chunk = avatar_session.chunk  # 320 samples @ 16kHz = 20ms
++        idx = 0
++        n = pcm.shape[0]
++        datainfo = {}
++        first = True
++        while n - idx >= chunk:
++            eventpoint = {}
++            if first:
++                eventpoint = {'status': 'start'}
++                first = False
++            if n - idx - chunk < chunk:
++                eventpoint = {'status': 'end'}
++            eventpoint.update(**datainfo)
++            avatar_session.put_audio_frame(pcm[idx:idx + chunk], eventpoint)
++            idx += chunk
++        return json_ok()
++    except Exception as e:
++        logger.exception('humanpcm exception:')
++        return json_error(str(e))
++
++
+ async def set_audiotype(request):
+     """设置自定义状态（动作编排）"""
+     try:
+@@ -246,6 +301,7 @@ def setup_routes(app):
+     app.router.add_get("/", index)
+     app.router.add_post("/human", human)
+     app.router.add_post("/humanaudio", humanaudio)
++    app.router.add_post("/humanpcm", humanpcm)
+     app.router.add_post("/set_audiotype", set_audiotype)
+     app.router.add_post("/record", record)
+     app.router.add_post("/interrupt_talk", interrupt_talk)

@@ -1,0 +1,34 @@
+# Local overrides / machine-specific config
+*.local
+.env
+.env.*
+config.yaml
+
+# Logs
+*.log
+*.err
+*.out
+
+# Models / weights (huge, never commit)
+*.gguf
+*.safetensors
+*.bin
+*.pth
+*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Patch artifacts
+*.orig
+*.rej
