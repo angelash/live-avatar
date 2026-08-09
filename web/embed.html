@@ -14,6 +14,7 @@
 </head>
 <body>
 <video id="video" autoplay playsinline muted></video>
+<audio id="audio" autoplay></audio>
 <span id="status">连接中...</span>
 <script>
 let pc = null;
@@ -34,10 +35,9 @@ function start() {
     pc.addTransceiver('video', { direction: 'recvonly' });
     pc.addTransceiver('audio', { direction: 'recvonly' });
     pc.addEventListener('track', evt => {
-        // 视频轨道 → 显示数字人画面
+        // 视频轨道 → 数字人画面；音频轨道 → 声音（LiveTalking 音视频时间戳同步）
         if (evt.track.kind === 'video') document.getElementById('video').srcObject = evt.streams[0];
-        // 音频轨道刻意不播放：s2s 页面本身会播放 TTS 声音，
-        // 此处再放一遍会造成声音重复两遍。
+        else document.getElementById('audio').srcObject = evt.streams[0];
     });
     pc.addEventListener('connectionstatechange', () => {
         if (pc.connectionState === 'connected') {

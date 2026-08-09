@@ -28516,6 +28516,73 @@ index 84292ab..b54a672 100644
        }
        this._markUnread();
      }
+diff --git a/demo/worklets/audio-playback.js b/demo/worklets/audio-playback.js
+index 474020f..4a1ee90 100644
+--- a/demo/worklets/audio-playback.js
++++ b/demo/worklets/audio-playback.js
+@@ -114,56 +114,15 @@ class AudioPlaybackProcessor extends AudioWorkletProcessor {
+     const out = channels[0];
+     const stereo = channels.length > 1 ? channels[1] : null;
+ 
++    // Live Avatar integration: the digital human's WebRTC stream carries the
++    // audio (time-stamped to the lip-sync video), so the s2s page's own
++    // playback is muted to avoid double audio. We still consume the queue so
++    // the pipeline keeps advancing, but output silence.
+     for (let i = 0; i < out.length; i++) {
+-      let sample = 0;
+-
+-      if (this._playing) {
+-        const v = this._readInterpolated();
+-        if (v === null) {
+-          // Underrun: try to ramp out cleanly to avoid clicks.
+-          sample = this._lastSample * Math.max(0, 1 - 1 / FADE_FRAMES);
+-          this._lastSample = sample;
+-          if (Math.abs(sample) < 1e-4) {
+-            this._playing = false;
+-            this._lastSample = 0;
+-            this.port.postMessage({ kind: "underrun" });
+-          }
+-        } else {
+-          sample = v;
+-          this._lastSample = v;
+-          this._advance();
+-        }
+-
+-        if (this._fadeIn > 0) {
+-          const gain = 1 - this._fadeIn / FADE_FRAMES;
+-          sample *= gain;
+-          this._fadeIn -= 1;
+-        }
+-        if (this._fadeOut > 0) {
+-          const gain = this._fadeOut / FADE_FRAMES;
+-          sample *= gain;
+-          this._fadeOut -= 1;
+-          if (this._fadeOut === 0) {
+-            this._playing = false;
+-            this._lastSample = 0;
+-          }
+-        }
+-
+-        this._totalPlayed += 1;
+-      }
+-
+-      out[i] = sample;
+-      if (stereo) stereo[i] = sample;
++      out[i] = 0;
++      if (stereo) stereo[i] = 0;
+     }
+-
+     this._framesSinceStats += out.length;
+-    if (this._framesSinceStats >= STATS_INTERVAL_FRAMES) {
+-      this._framesSinceStats = 0;
+-      const queuedSamples = this._queuedSamples();
+-      const queuedMs = (queuedSamples / this._inputRate) * 1000;
+-      this.port.postMessage({ kind: "stats", queuedMs, played: this._totalPlayed });
+-    }
+-
+     return true;
+   }
+ }
 diff --git a/demo/ws/s2s-ws-client.js b/demo/ws/s2s-ws-client.js
 index aa6eaec..416212d 100644
 --- a/demo/ws/s2s-ws-client.js
