@@ -3,6 +3,7 @@
 .env
 .env.*
 config.yaml
+scripts/config.local.bat
 
 # Logs
 *.log

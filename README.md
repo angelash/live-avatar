@@ -19,13 +19,13 @@
 - 👄 **数字人口型同步** — 回复音频实时转发给 [LiveTalking](https://gitee.com/lipku/LiveTalking)（wav2lip），驱动数字人口型。
 - 🖥 **整页全屏数字人背景** — 数字人视频作为页面背景铺满全屏，UI（说话按钮、输入框）悬浮其上，沉浸感强。
 - 🎯 **中文优先** — STT(faster-whisper)、LLM、TTS 全链路中文优化。
-- 🔌 **一键启动** — 4 个服务（LLM → 语音管线 → 网页 → 数字人）自动按依赖顺序拉起。
+- 🔌 **一键启动** — 4 个服务（LLM → 数字人 → 语音管线 → 网页）自动按依赖顺序拉起。
 
 ## 架构
 
 ```
 ┌─────────────┐   ┌──────────────┐   ┌────────────┐   ┌───────────────┐
-│  llama-server │──▶│  s2s backend │──▶│  s2s demo  │   │  Live2Talking   │
+│  llama-server │──▶│  s2s backend │──▶│  s2s demo  │   │  LiveTalking    │
 │  (LLM, :8080) │   │  (管线, :8765)│   │ (网页, :7860)│──▶│ (数字人, :8010) │
 │   Qwen3.5-9B  │   │ VAD+STT+TTS  │   │             │   │  wav2lip 口型   │
 └────────────┘   └──────┬───────┘   └────────────┘   └───▲───────────┘
@@ -34,7 +34,7 @@
                                      `/humanpcm`
 ```
 
-**对话流程**：你说中文 → VAD 检测语音 → faster-whisper 转写中文 → llama.cpp 生成中文回复 → Qwen3-TTS 合成语音（本机播放）→ 同一份音频推给 LiveTalking `/humanpcm` → 数字人口型同步。
+**对话流程**：你说中文 → VAD 检测语音 → faster-whisper 转写中文 → llama.cpp 生成中文回复 → Qwen3-TTS 合成语音 → 同一份音频推给 LiveTalking `/humanpcm` → 浏览器播放数字人的 WebRTC 音轨并同步口型。
 
 ## 快速开始
 
@@ -44,7 +44,8 @@
 git clone https://github.com/你的用户名/live-avatar.git
 cd live-avatar
 rem 按文档先安装四个依赖组件
-notepad scripts\start_all.bat   rem 修改路径为你本机的安装位置
+copy scripts\config.local.bat.example scripts\config.local.bat
+notepad scripts\config.local.bat
 start_all.bat
 ```
 
@@ -54,7 +55,8 @@ start_all.bat
 
 ```
 live-avatar/
-├── scripts/          # 参数化启动脚本（需按本机改路径）
+├── scripts/          # 参数化启动脚本
+│   ├── config.local.bat.example # 本机路径配置模板
 │   ├── start_all.bat         # 一键启动（推荐）
 │   ├── start_llama.bat       # llama.cpp LLM
 │   ├── start_s2s.bat         # speech-to-speech 管线
@@ -67,6 +69,8 @@ live-avatar/
 ├── docs/DEPLOYMENT.md        # 详细部署教程 + 注意事项
 └── LICENSE                   # MIT
 ```
+
+> 上传音色需要语音克隆 Base 模型；默认 CustomVoice 模型只能选择内置 speaker。详细配置和 Wav2Lip 输入尺寸注意事项见[部署教程](docs/DEPLOYMENT.md#7-常见问题与注意事项)。
 
 ## 依赖（上游项目）
 

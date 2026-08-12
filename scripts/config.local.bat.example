@@ -1,0 +1,17 @@
+@echo off
+rem Copy this file to config.local.bat and set the paths for your machine.
+rem config.local.bat is ignored by Git, so updates will not overwrite it.
+
+set "S2S_DIR=C:\path\to\speech-to-speech"
+set "LIVETALKING_DIR=C:\path\to\LiveTalking"
+set "LLAMA_CPP_DIR=C:\llama.cpp"
+set "LLM_MODEL_GGUF=C:\path\to\your-model.gguf"
+
+rem Optional overrides
+rem set "LLM_CTX_SIZE=8192"
+rem set "LLM_ALIAS=qwen3.5-9b"
+rem set "LLM_URL=http://127.0.0.1:8080/v1"
+rem set "LLM_MODEL_NAME=qwen3.5-9b"
+rem set "STT_LANG=zh"
+rem set "DEMO_PORT=7860"
+rem set "LT_PORT=8010"

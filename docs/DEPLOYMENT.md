@@ -46,15 +46,14 @@
      │  提供 OpenAI 兼容接口 /v1/chat/completions
      ▼
 [s2s backend]   :8765   语音对话管线（VAD→STT→LLM→TTS）
-     │  ① 播放 TTS 语音（本机出声）
-     │  ② 把同一份音频转发给数字人做口型同步
+     │  把 TTS 音频转发给数字人做口型同步与浏览器播放
      ├────────────────────────────┐
      ▼                            ▼
 [s2s demo]      :7860   [LiveTalking]  :8010
 网页 UI（数字人全屏背景）   数字人 wav2lip 口型同步
 ```
 
-**对话流程**：你对页面说话 → whisper 转写中文 → llama.cpp 生成中文回复 → Qwen3-TTS 合成语音（网页播放）→ 音频同时推给 LiveTalking → 数字人口型跟随。
+**对话流程**：你对页面说话 → whisper 转写中文 → llama.cpp 生成中文回复 → Qwen3-TTS 合成语音 → 音频推给 LiveTalking → 浏览器播放数字人的 WebRTC 音轨，口型同步跟随。
 
 ---
 
@@ -194,10 +193,16 @@ copy C:\live-avatar\web\embed.html C:\LiveTalking\web\embed.html
 
 ## 5. 配置启动脚本
 
-打开 `scripts/start_all.bat`，把 **CONFIG 区块**改为你本机的实际路径：
+复制本机配置模板，再填写你机器上的实际路径：
 
 ```bat
-rem ─── CONFIG: 改成你机器上的真实路径 ───
+copy scripts\config.local.bat.example scripts\config.local.bat
+notepad scripts\config.local.bat
+```
+
+在 `config.local.bat` 中填写：
+
+```bat
 set "S2S_DIR=C:\s2s"                        @ 你的 speech-to-speech 目录
 set "LIVETALKING_DIR=C:\LiveTalking"        @ 你的 LiveTalking 目录
 set "LLAMA_CPP_DIR=C:\llama.cpp"            @ llama.cpp 解压目录
@@ -271,7 +276,7 @@ findstr "humanpcm" C:\s2s\s2s_err.log
 
 **原因**：LiveTalking 通过 WebRTC 音频轨道把合成语音回传给浏览器，而 s2s demo 页面本身也在播放 TTS 声音，两路叠加。
 
-**解决**：确保使用本仓库的 `web/embed.html`（已移除 `<audio>` 播放，只消费视频轨道）。
+**解决**：确保使用本仓库的 `web/embed.html`。s2s demo 会静音自身播放，数字人的 WebRTC 音频轨道是唯一的浏览器声音来源。
 
 ### 7.2 数字人口型不动（但视频在动）
 
@@ -319,6 +324,17 @@ findstr "humanpcm" C:\s2s\s2s_err.log
 
 如果 s2s 日志混乱或端口冲突，可能启动了多个实例。用 `netstat -ano | findstr :8765` 找到 PID，用任务管理器结束多余进程后重启。
 
+### 7.10 上传音色后仍是男声
+
+默认的 `Qwen3-TTS-12Hz-1.7B-CustomVoice` 只支持内置 speaker；上传 WAV 不会克隆音色，且默认 `Aiden` 是男声。
+
+- 只想使用内置女声：在网页设置中选择 `Serena`、`Sohee` 或 `Vivian`，保存并重新开始对话。
+- 要使用上传的样音：下载 `Qwen/Qwen3-TTS-12Hz-1.7B-Base`，并为 s2s 增加 `--qwen3_tts_model_name`、`--qwen3_tts_ref_audio`。Base 模型支持语音克隆；提供准确样音文稿可获得更好的效果，也可用 `--qwen3_tts_xvec_only` 免文稿但效果略弱。
+
+### 7.11 Wav2Lip 启动后口型线程崩溃
+
+本集成使用的 v2 Wav2Lip 权重不能直接接收默认的 96×96 avatar 人脸裁剪；推理输入必须在 `wav2lip_avatar.py` 中 resize 到 **256×256**。256 是该 v2 网络 encoder/decoder skip connection 都匹配的尺寸；不要改用 384，也不要切换到仓库内不匹配的 v1 架构。
+
 ---
 
 ## 8. 自研组件详解
@@ -329,7 +345,8 @@ findstr "humanpcm" C:\s2s\s2s_err.log
 | `scripts/start_s2s.bat` | 语音管线启动（含中文 STT、转发桥环境变量） |
 | `scripts/start_demo.bat` | 网页服务 |
 | `scripts/start_livetalking.bat` | 数字人服务（本机监听） |
-| `scripts/start_all.bat` | 一键启动，含路径配置区 |
+| `scripts/start_all.bat` | 一键启动，读取本机配置 |
+| `scripts/config.local.bat.example` | 本机路径配置模板；复制为 `config.local.bat` 后填写 |
 | `patches/s2s-integration.patch` | s2s 集成改动（转发桥、网页集成、中文优化） |
 | `patches/livetalking-integration.patch` | LiveTalking 改动（`/humanpcm` 接口、监听加固） |
 | `web/embed.html` | 数字人全屏背景嵌入页 |
@@ -349,6 +366,6 @@ s2s TTS 音频 → POST /humanpcm?sessionid=<活跃会话> → LiveTalking 按 2
 ### 嵌入页原理
 
 `web/embed.html` 通过 WebRTC 自动连接 LiveTalking：
-- 创建 peer connection，接收视频轨（数字人画面）和音频轨（刻意不播放，避免双声）
+- 创建 peer connection，接收视频轨（数字人画面）和音频轨（唯一的浏览器播放来源，避免双声）
 - 断线 3 秒自动重连
 - 通过 `postMessage` 把 sessionid 通知父页面（供调试）
