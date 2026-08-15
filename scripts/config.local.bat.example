@@ -33,7 +33,7 @@ rem set "MINIMAX_TTS_MODEL=speech-2.8-turbo"
 rem Mainland China account: https://api.minimaxi.com/v1/t2a_v2
 rem International account: https://api.minimax.io/v1/t2a_v2
 rem set "MINIMAX_TTS_BASE_URL=https://api.minimaxi.com/v1/t2a_v2"
-rem set "MINIMAX_TTS_VOICE=Chinese (Mandarin)_Gentle_Senior"
+rem set "MINIMAX_TTS_VOICE=Chinese (Mandarin)_Warm_Girl"
 rem set "MINIMAX_TTS_SPEED=1.0"
 rem set "MINIMAX_TTS_VOLUME=1.0"
 rem set "MINIMAX_TTS_PITCH=0"

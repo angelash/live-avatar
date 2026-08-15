@@ -88,7 +88,7 @@ class MiniMaxTTSHandler(BaseHandler[TTSIn, TTSOut]):
         ).strip()
         self.model = os.environ.get("MINIMAX_TTS_MODEL", "speech-2.8-turbo").strip()
         self.voice = os.environ.get(
-            "MINIMAX_TTS_VOICE", "Chinese (Mandarin)_Gentle_Senior"
+            "MINIMAX_TTS_VOICE", "Chinese (Mandarin)_Warm_Girl"
         ).strip()
         self.speed = _clamped_env_float("MINIMAX_TTS_SPEED", 1.0, 0.5, 2.0)
         self.volume = _clamped_env_float("MINIMAX_TTS_VOLUME", 1.0, 0.1, 10.0)

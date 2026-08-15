@@ -49,7 +49,7 @@ foreach ($marker in @(
     "Chinese (Mandarin)_Gentle_Senior",
     "Chinese (Mandarin)_Warm_Girl",
     "managed-reconnect-1",
-    "s2s.ws.voice.minimax-v1"
+    "s2s.ws.voice.minimax-v2"
 )) {
     if ($marker -like "s2s.ws.*") {
         $main = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$demoPort/main.js" -TimeoutSec 10
@@ -59,6 +59,10 @@ foreach ($marker in @(
         Assert-True ($page.Content.Contains($marker)) "Frontend marker is missing: $marker"
     }
 }
+Assert-True ($page.Content.Contains('<option value="Chinese (Mandarin)_Warm_Girl" selected>温暖少女</option>')) "Warm Girl is not the selected default voice"
+Assert-True (-not $page.Content.Contains("刚才的音色")) "The obsolete parenthetical voice label is still present"
+$main = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$demoPort/main.js" -TimeoutSec 10
+Assert-True ($main.Content.Contains('const DEFAULT_VOICE = "Chinese (Mandarin)_Warm_Girl";')) "Frontend default voice is not Warm Girl"
 
 $null = Invoke-RestMethod -Uri "http://127.0.0.1:8080/health" -TimeoutSec 10
 $ltConfig = Invoke-RestMethod -Uri "$expectedLtUrl/api/admin/config" -TimeoutSec 10
@@ -87,7 +91,7 @@ if ($Conversation) {
     $smokeArgs = @(
         $smoke,
         "--url", $s2sUrl,
-        "--voice", "Chinese (Mandarin)_Gentle_Senior",
+        "--voice", "Chinese (Mandarin)_Warm_Girl",
         "--livetalking-url", $expectedLtUrl
     )
     $smokeOutput = & $python @smokeArgs

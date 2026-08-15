@@ -158,7 +158,7 @@ async def async_main(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="End-to-end S2S deployment smoke test")
     parser.add_argument("--url", default="ws://127.0.0.1:8765/v1/realtime")
-    parser.add_argument("--voice", default="Chinese (Mandarin)_Gentle_Senior")
+    parser.add_argument("--voice", default="Chinese (Mandarin)_Warm_Girl")
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--livetalking-url", default="")
     args = parser.parse_args()

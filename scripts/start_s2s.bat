@@ -68,7 +68,7 @@ if "%WINDOWS_TTS_VOICE%"=="" set "WINDOWS_TTS_VOICE=Microsoft Huihui Desktop"
 if "%WINDOWS_TTS_RATE%"=="" set "WINDOWS_TTS_RATE=-1"
 if "%WINDOWS_TTS_VOLUME%"=="" set "WINDOWS_TTS_VOLUME=95"
 if "%MINIMAX_TTS_MODEL%"=="" set "MINIMAX_TTS_MODEL=speech-2.8-turbo"
-if "%MINIMAX_TTS_VOICE%"=="" set "MINIMAX_TTS_VOICE=Chinese (Mandarin)_Gentle_Senior"
+if "%MINIMAX_TTS_VOICE%"=="" set "MINIMAX_TTS_VOICE=Chinese (Mandarin)_Warm_Girl"
 if "%MINIMAX_TTS_SPEED%"=="" set "MINIMAX_TTS_SPEED=1.0"
 if /I "%TTS_ENGINE%"=="minimax" if "%MINIMAX_API_KEY%"=="" (
   echo [ERROR] MINIMAX_API_KEY is required when TTS_ENGINE=minimax.

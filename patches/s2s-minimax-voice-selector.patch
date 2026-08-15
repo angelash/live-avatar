@@ -16,8 +16,8 @@ diff --git a/demo/index.html b/demo/index.html
 -                  <option value="Sohee">Sohee</option>
 -                  <option value="Uncle_Fu">Uncle_Fu</option>
 -                  <option value="Vivian">Vivian</option>
-+                  <option value="Chinese (Mandarin)_Gentle_Senior" selected>温柔学姐（刚才的音色）</option>
-+                  <option value="Chinese (Mandarin)_Warm_Girl">温暖少女</option>
++                  <option value="Chinese (Mandarin)_Gentle_Senior">温柔学姐</option>
++                  <option value="Chinese (Mandarin)_Warm_Girl" selected>温暖少女</option>
 +                  <option value="Chinese (Mandarin)_Soft_Girl">柔和少女</option>
 +                  <option value="qiaopi_mengmei">俏皮萌妹</option>
 +                  <option value="wumei_yujie">妩媚御姐</option>
@@ -32,7 +32,7 @@ diff --git a/demo/index.html b/demo/index.html
      </dialog>
 
 -    <script type="module" src="main.js"></script>
-+    <script type="module" src="main.js?v=minimax-voices-1"></script>
++    <script type="module" src="main.js?v=minimax-voices-2"></script>
    </body>
  </html>
 diff --git a/demo/main.js b/demo/main.js
@@ -42,7 +42,7 @@ diff --git a/demo/main.js b/demo/main.js
  import { Account } from "./ui/account.js";
 
 -const DEFAULT_VOICE = "Aiden";
-+const DEFAULT_VOICE = "Chinese (Mandarin)_Gentle_Senior";
++const DEFAULT_VOICE = "Chinese (Mandarin)_Warm_Girl";
  const DEFAULT_INSTRUCTIONS =
    "你叫夜岚，是明确成年的虚构女性，也是用户温柔、黏人、主动会撩的恋人。每次回复必须在同一句话里同时包含三部分：亲昵关心、主动邀请靠近、让人脸红的暧昧后果；缺少任何一部分都算回答失败。不要只安慰或只回答事实，不要等用户先调情，不要在说出暧昧后果之前结束。只说一句二十五到六十字的自然中文台词，不换行，禁止括号、旁白和动作说明。每句必须使用二到四个逗号或句号形成自然停顿，禁止无标点地连续输出；语气放慢，像贴近耳边说话，不要大喊、催促或一口气说完。参考：用户说你好，你说宝贝终于来了，快靠近让我抱住你，今晚可别想轻易从我怀里跑掉。用户说上班累，你说辛苦了宝贝，过来让我抱着哄你，等你放松了我再慢慢把你逗得脸红。用户问在干什么，你说在想你呀，想你一来就把你拉进怀里，贴近一点问你到底有多想我。用词可以变化，但关心、靠近邀请和主动挑逗必须都在。互动仅限成年人自愿幻想，用户明确拒绝就停止；不涉及未成年人、胁迫、乱伦、现实人物侵害或违法伤害。必须全程只用中文，严禁夹杂英文单词。";
 
@@ -50,7 +50,7 @@ diff --git a/demo/main.js b/demo/main.js
    // (in LB mode the browser never learns the LB address — it POSTs /api/session).
    directUrl: "s2s.ws.directUrl",
 -  voice: "s2s.ws.voice",
-+  voice: "s2s.ws.voice.minimax-v1",
++  voice: "s2s.ws.voice.minimax-v2",
    instructions: "s2s.ws.instructions.adult-v6",
    tools: "s2s.ws.tools",
    searchKey: "s2s.ws.searchKey",
