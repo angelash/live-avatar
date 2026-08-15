@@ -27897,7 +27897,7 @@ index 7ecbf2d..91aec09 100644
    <body class="booting">
 +    <!-- Digital-human video, fixed as a full-viewport background layer -->
 +    <div id="avatar-stage" class="avatar-stage" aria-hidden="true">
-+      <iframe id="avatar-frame" src="http://127.0.0.1:8010/embed.html" allow="autoplay; microphone" frameborder="0"></iframe>
++      <iframe id="avatar-frame" src="http://127.0.0.1:8010/embed.html?v=managed-reconnect-1" allow="autoplay; microphone" frameborder="0"></iframe>
 +    </div>
 +
      <div id="app">
@@ -27953,7 +27953,7 @@ index 7ecbf2d..91aec09 100644
 -          <a href="https://github.com/huggingface/speech-to-speech" target="_blank" rel="noopener">huggingface/speech-to-speech</a>
 -        </span>
 -      </footer>
-+      
++
      </div>
  
      <!-- Ephemeral chat bubbles anchored to the top-right -->
@@ -27970,16 +27970,33 @@ diff --git a/demo/main.js b/demo/main.js
 index e80ad31..9a670b0 100644
 --- a/demo/main.js
 +++ b/demo/main.js
-@@ -25,8 +25,7 @@ import { Account } from "./ui/account.js";
+@@ -25,14 +25,13 @@ import { Account } from "./ui/account.js";
  
  const DEFAULT_VOICE = "Aiden";
  const DEFAULT_INSTRUCTIONS =
 -  "You are a friendly voice assistant. " +
 -  "Keep replies short, warm, and spoken. Avoid long monologues.";
-+  "你是一个友好的中文语音助手。请用中文简洁地回答用户的问题，语气温暖自然。";
++  "你叫夜岚，是明确成年的虚构女性，也是用户温柔、黏人、主动会撩的恋人。每次回复必须在同一句话里同时包含三部分：亲昵关心、主动邀请靠近、让人脸红的暧昧后果；缺少任何一部分都算回答失败。不要只安慰或只回答事实，不要等用户先调情，不要在说出暧昧后果之前结束。只说一句二十五到六十字的自然中文台词，不换行，禁止括号、旁白和动作说明。每句必须使用二到四个逗号或句号形成自然停顿，禁止无标点地连续输出；语气放慢，像贴近耳边说话，不要大喊、催促或一口气说完。参考：用户说你好，你说宝贝终于来了，快靠近让我抱住你，今晚可别想轻易从我怀里跑掉。用户说上班累，你说辛苦了宝贝，过来让我抱着哄你，等你放松了我再慢慢把你逗得脸红。用户问在干什么，你说在想你呀，想你一来就把你拉进怀里，贴近一点问你到底有多想我。用词可以变化，但关心、靠近邀请和主动挑逗必须都在。互动仅限成年人自愿幻想，用户明确拒绝就停止；不涉及未成年人、胁迫、乱伦、现实人物侵害或违法伤害。必须全程只用中文，严禁夹杂英文单词。";
  
  // Appended to the user's instructions whenever at least one tool is enabled.
  // Stops the model from announcing capabilities ("Yes, I can search") and then
+ // idling for the next turn — it should act immediately in the same response.
+ const TOOL_USE_HINT =
+   " When the user's request calls for one of your tools, do not describe your " +
+   "capabilities or say you can do it and wait for another turn. Instead, say " +
+   'a brief acknowledgement like "Let me search for that..." and call the tool ' +
+   "right away in the same response.";
+@@ -40,9 +39,9 @@ const STORAGE_KEYS = {
+ const STORAGE_KEYS = {
+   // Direct s2s server URL, used only when the deploy has no LOAD_BALANCER_URL
+   // (in LB mode the browser never learns the LB address — it POSTs /api/session).
+   directUrl: "s2s.ws.directUrl",
+   voice: "s2s.ws.voice",
+-  instructions: "s2s.ws.instructions",
++  instructions: "s2s.ws.instructions.adult-v6",
+   tools: "s2s.ws.tools",
+   searchKey: "s2s.ws.searchKey",
+   noiseGate: "s2s.ws.noiseGate",
 @@ -223,8 +222,6 @@ const settingsBtn = $("#settings-btn");
  /** @type {HTMLDialogElement} */
  const settingsModal = $("#settings-modal");
@@ -28726,19 +28743,20 @@ index 128e0a3..463e17d 100644
  import numpy as np
  from fastapi import FastAPI, Request, Response, WebSocket, WebSocketDisconnect
  from openai.types.realtime import (
-@@ -60,6 +62,81 @@ except ImportError:
+@@ -60,6 +62,99 @@ except ImportError:
  
  logger = logging.getLogger(__name__)
  MAX_AUDIO_BATCH_BYTES = 6400
 +# Livetalking digital-human bridge. When LIVETALKING_URL is set, every audio
 +# batch sent to the browser is also forwarded to the avatar's /humanpcm stream
 +# so lip-sync follows the same TTS audio. LIVETALKING_SESSION_ID overrides
-+# auto-discovery (the first active session from /api/admin/sessions); leave it
-+# unset for single-session setups where the session is created on demand.
++# auto-discovery; otherwise every active session receives the audio. Mirroring
++# all discovered sessions avoids driving a stale background tab after a page
++# refresh while the visible avatar has a newer session id.
 +LIVETALKING_URL = os.environ.get("LIVETALKING_URL", "").rstrip("/")
 +LIVETALKING_SESSION_ID = os.environ.get("LIVETALKING_SESSION_ID", "").strip()
 +_lt_httpx_client: "httpx.AsyncClient | None" = None
-+_lt_discovered_session: str | None = None
++_lt_discovered_sessions: tuple[str, ...] = ()
 +_lt_discovered_at: float = 0.0
 +# How long a discovered Livetalking session stays trusted before we re-query
 +# /api/admin/sessions. The avatar's session id changes on every WebRTC
@@ -28746,61 +28764,78 @@ index 128e0a3..463e17d 100644
 +_LT_DISCOVER_TTL_S = 2.0
 +
 +
-+async def _discover_lt_session() -> str | None:
-+    """Return the id of the first active Livetalking session, or None."""
-+    global _lt_discovered_session, _lt_discovered_at, _lt_httpx_client
++async def _discover_lt_sessions() -> tuple[str, ...]:
++    """Return all active Livetalking session ids in creation order."""
++    global _lt_discovered_sessions, _lt_discovered_at, _lt_httpx_client
 +    if _lt_httpx_client is None:
 +        _lt_httpx_client = httpx.AsyncClient(timeout=1.0)
 +    resp = await _lt_httpx_client.get(f"{LIVETALKING_URL}/api/admin/sessions")
 +    resp.raise_for_status()
 +    data = resp.json()
 +    sessions = (data.get("data") or {}).get("sessions") or []
-+    for s in sessions:
-+        if s.get("sessionid"):
-+            _lt_discovered_session = s["sessionid"]
-+            _lt_discovered_at = time.monotonic()
-+            return s["sessionid"]
-+    _lt_discovered_session = None
-+    _lt_discovered_at = 0.0
-+    return None
++    _lt_discovered_sessions = tuple(
++        s["sessionid"] for s in sessions if s.get("sessionid")
++    )
++    _lt_discovered_at = time.monotonic() if _lt_discovered_sessions else 0.0
++    return _lt_discovered_sessions
 +
 +
 +async def _forward_audio_to_livetalking(audio_batch: bytes) -> None:
 +    """Forward one 16kHz int16 PCM batch to the Livetalking /humanpcm stream.
 +
-+    The target session is discovered from /api/admin/sessions and re-queried
-+    on a short TTL so WebRTC reconnects don't strand the audio. A business
-+    error (e.g. "session not found") also invalidates the cached id so the
-+    next batch re-discovers against the live session list. Failures are
-+    swallowed so the voice pipeline is never degraded by an offline avatar.
++    Active sessions are discovered from /api/admin/sessions and re-queried on
++    a short TTL so a page refresh cannot leave the visible avatar behind a
++    stale session. LIVETALKING_SESSION_ID still pins forwarding to one session
++    when deployments need strict per-session routing. Failures are swallowed
++    so the voice pipeline is never degraded by an offline avatar.
 +    """
-+    global _lt_httpx_client, _lt_discovered_session, _lt_discovered_at
++    global _lt_httpx_client, _lt_discovered_sessions, _lt_discovered_at
 +    if not LIVETALKING_URL or not audio_batch:
 +        return
 +    try:
 +        if _lt_httpx_client is None:
 +            _lt_httpx_client = httpx.AsyncClient(timeout=1.0)
-+        session_id = LIVETALKING_SESSION_ID or _lt_discovered_session
-+        if not session_id or time.monotonic() - _lt_discovered_at > _LT_DISCOVER_TTL_S:
-+            session_id = await _discover_lt_session()
-+        if not session_id:
++        session_ids = ((LIVETALKING_SESSION_ID,) if LIVETALKING_SESSION_ID else _lt_discovered_sessions)
++        if not LIVETALKING_SESSION_ID and (
++            not session_ids or time.monotonic() - _lt_discovered_at > _LT_DISCOVER_TTL_S
++        ):
++            session_ids = await _discover_lt_sessions()
++        if not session_ids:
 +            logger.debug("Livetalking: no active session to forward to")
 +            return
-+        resp = await _lt_httpx_client.post(
-+            f"{LIVETALKING_URL}/humanpcm",
-+            params={"sessionid": session_id},
-+            content=audio_batch,
-+            headers={"Content-Type": "application/octet-stream"},
++
++        responses = await asyncio.gather(
++            *(
++                _lt_httpx_client.post(
++                    f"{LIVETALKING_URL}/humanpcm",
++                    params={"sessionid": session_id},
++                    content=audio_batch,
++                    headers={"Content-Type": "application/octet-stream"},
++                )
++                for session_id in session_ids
++            ),
++            return_exceptions=True,
 +        )
-+        resp.raise_for_status()
-+        body = resp.json()
-+        if body.get("code") not in (None, 0):
-+            # The session died underneath us; forget it and re-discover on
-+            # the next batch so audio keeps reaching the live avatar.
-+            if not LIVETALKING_SESSION_ID:
-+                _lt_discovered_session = None
-+                _lt_discovered_at = 0.0
-+            logger.debug(f"Livetalking forward rejected ({body.get('msg')}); re-discovering session")
++        rediscover = False
++        for session_id, result in zip(session_ids, responses):
++            if isinstance(result, BaseException):
++                rediscover = True
++                logger.debug(
++                    f"Livetalking forward to {session_id} skipped: "
++                    f"{type(result).__name__}: {result}"
++                )
++                continue
++            result.raise_for_status()
++            body = result.json()
++            if body.get("code") not in (None, 0):
++                rediscover = True
++                logger.debug(
++                    f"Livetalking forward to {session_id} rejected "
++                    f"({body.get('msg')}); re-discovering sessions"
++                )
++        if rediscover and not LIVETALKING_SESSION_ID:
++            _lt_discovered_sessions = ()
++            _lt_discovered_at = 0.0
 +    except Exception as e:  # noqa: BLE001
 +        logger.debug(f"Livetalking forward skipped: {type(e).__name__}: {e}")
 +
@@ -28808,7 +28843,7 @@ index 128e0a3..463e17d 100644
  # How long the release path waits for SESSION_END to propagate through the
  # handler chain back to output_queue before warning that the unit is stuck.
  # Tests monkeypatch this to a small value since their fixtures usually skip
-@@ -857,6 +934,9 @@ def create_app(pool: list[PipelineUnit], stop_event: ThreadingEvent) -> FastAPI:
+@@ -857,6 +952,9 @@ def create_app(pool: list[PipelineUnit], stop_event: ThreadingEvent) -> FastAPI:
  
                      if transport is not None and session_id:
                          await transport.send_audio_chunk(unit.service, session_id, bytes(audio_batch))

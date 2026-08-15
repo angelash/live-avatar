@@ -1,0 +1,188 @@
+diff --git a/demo/main.js b/demo/main.js
+index c9946c5..09b018a 100644
+--- a/demo/main.js
++++ b/demo/main.js
+@@ -413,6 +413,23 @@ let queuedTicketId = "";
+
+ /** @type {RealtimeClient | null} */
+ let client = null;
++let liveTalkingSessionId = "";
++const avatarFrame = /** @type {HTMLIFrameElement | null} */ (document.getElementById("avatar-frame"));
++
++window.addEventListener("message", (event) => {
++  if (event.source !== avatarFrame?.contentWindow || event.data?.type !== "lt-session") return;
++  const sessionId = String(event.data.sessionid || "").trim();
++  if (!/^[A-Za-z0-9._-]{1,128}$/.test(sessionId)) return;
++  liveTalkingSessionId = sessionId;
++  client?.setLiveTalkingSession(sessionId);
++});
++
++function requestLiveTalkingSession() {
++  avatarFrame?.contentWindow?.postMessage({ type: "lt-session-request" }, "*");
++}
++
++avatarFrame?.addEventListener("load", requestLiveTalkingSession);
++requestLiveTalkingSession();
+ /** @type {MediaStream | null} */
+ let micStream = null;
+ let micMuted = false;
+@@ -1424,6 +1441,7 @@ async function doStart(audioContext = null) {
+
+   try {
+     await c.connect();
++    if (liveTalkingSessionId) c.setLiveTalkingSession(liveTalkingSessionId);
+   } catch (err) {
+     // The grant can be refused (402 → limit) or the dial can fail. In LB mode
+     // the AudioContext hasn't been adopted by the client yet (the session POST
+diff --git a/demo/rtc/s2s-rtc-client.js b/demo/rtc/s2s-rtc-client.js
+index 40d7236..593f96a 100644
+--- a/demo/rtc/s2s-rtc-client.js
++++ b/demo/rtc/s2s-rtc-client.js
+@@ -659,6 +659,12 @@ export class S2sRtcRealtimeClient extends EventTarget {
+     }
+   }
+
++  /** Bind TTS lip-sync audio to the avatar session shown in this page. */
++  setLiveTalkingSession(sessionId) {
++    if (!sessionId) return;
++    this._send({ type: "livetalking.session.update", sessionid: sessionId });
++  }
++
+   /** Replace the declared tool set on a live session. Always sends `tools` —
+    *  an empty array clears them. @param {import("../ws/s2s-ws-client.js").ToolDef[]} tools */
+   setTools(tools) {
+diff --git a/demo/ws/s2s-ws-client.js b/demo/ws/s2s-ws-client.js
+index 416212d..427f990 100644
+--- a/demo/ws/s2s-ws-client.js
++++ b/demo/ws/s2s-ws-client.js
+@@ -920,6 +920,12 @@ export class S2sWsRealtimeClient extends EventTarget {
+     }
+   }
+
++  /** Bind TTS lip-sync audio to the avatar session shown in this page. */
++  setLiveTalkingSession(sessionId) {
++    if (!sessionId) return;
++    this._send({ type: "livetalking.session.update", sessionid: sessionId });
++  }
++
+   /**
+    * Replace the declared tool set on a live session (e.g. the user flipped a
+    * tool switch mid-conversation). Always sends `tools` — an empty array
+diff --git a/src/speech_to_speech/api/openai_realtime/websocket_router.py b/src/speech_to_speech/api/openai_realtime/websocket_router.py
+index 54e8746..2bf4142 100644
+--- a/src/speech_to_speech/api/openai_realtime/websocket_router.py
++++ b/src/speech_to_speech/api/openai_realtime/websocket_router.py
+@@ -64,15 +64,15 @@ logger = logging.getLogger(__name__)
+ MAX_AUDIO_BATCH_BYTES = 6400
+ # Livetalking digital-human bridge. When LIVETALKING_URL is set, every audio
+ # batch sent to the browser is also forwarded to the avatar's /humanpcm stream
+-# so lip-sync follows the same TTS audio. LIVETALKING_SESSION_ID overrides
+-# auto-discovery; otherwise every active session receives the audio. Mirroring
+-# all discovered sessions avoids driving a stale background tab after a page
+-# refresh while the visible avatar has a newer session id.
++# so lip-sync follows the same TTS audio. The browser binds its current avatar
++# session to the s2s connection; LIVETALKING_SESSION_ID remains an operator
++# override, and newest-session discovery is the compatibility fallback.
+ LIVETALKING_URL = os.environ.get("LIVETALKING_URL", "").rstrip("/")
+ LIVETALKING_SESSION_ID = os.environ.get("LIVETALKING_SESSION_ID", "").strip()
+ _lt_httpx_client: "httpx.AsyncClient | None" = None
+ _lt_discovered_sessions: tuple[str, ...] = ()
+ _lt_discovered_at: float = 0.0
++_lt_session_bindings: dict[str, str] = {}
+ # How long a discovered Livetalking session stays trusted before we re-query
+ # /api/admin/sessions. The avatar's session id changes on every WebRTC
+ # reconnect, so a stale id would forward audio into the void.
+@@ -95,14 +95,15 @@ async def _discover_lt_sessions() -> tuple[str, ...]:
+     return _lt_discovered_sessions
+
+
+-async def _forward_audio_to_livetalking(audio_batch: bytes) -> None:
++async def _forward_audio_to_livetalking(
++    audio_batch: bytes, preferred_session_id: str = ""
++) -> None:
+     """Forward one 16kHz int16 PCM batch to the Livetalking /humanpcm stream.
+
+-    Active sessions are discovered from /api/admin/sessions and re-queried on
+-    a short TTL so a page refresh cannot leave the visible avatar behind a
+-    stale session. LIVETALKING_SESSION_ID still pins forwarding to one session
+-    when deployments need strict per-session routing. Failures are swallowed
+-    so the voice pipeline is never degraded by an offline avatar.
++    The browser-provided session id routes audio only to the avatar in that
++    page. An operator override takes precedence; clients that predate the
++    binding event fall back to the newest active avatar session. Failures are
++    swallowed so the voice pipeline is never degraded by an offline avatar.
+     """
+     global _lt_httpx_client, _lt_discovered_sessions, _lt_discovered_at
+     if not LIVETALKING_URL or not audio_batch:
+@@ -110,11 +111,14 @@ async def _forward_audio_to_livetalking(audio_batch: bytes) -> None:
+     try:
+         if _lt_httpx_client is None:
+             _lt_httpx_client = httpx.AsyncClient(timeout=1.0)
+-        session_ids = ((LIVETALKING_SESSION_ID,) if LIVETALKING_SESSION_ID else _lt_discovered_sessions)
+-        if not LIVETALKING_SESSION_ID and (
++        pinned_session_id = LIVETALKING_SESSION_ID or preferred_session_id
++        session_ids = (
++            (pinned_session_id,) if pinned_session_id else _lt_discovered_sessions[-1:]
++        )
++        if not pinned_session_id and (
+             not session_ids or time.monotonic() - _lt_discovered_at > _LT_DISCOVER_TTL_S
+         ):
+-            session_ids = await _discover_lt_sessions()
++            session_ids = (await _discover_lt_sessions())[-1:]
+         if not session_ids:
+             logger.debug("Livetalking: no active session to forward to")
+             return
+@@ -148,7 +152,7 @@ async def _forward_audio_to_livetalking(audio_batch: bytes) -> None:
+                     f"Livetalking forward to {session_id} rejected "
+                     f"({body.get('msg')}); re-discovering sessions"
+                 )
+-        if rediscover and not LIVETALKING_SESSION_ID:
++        if rediscover and not pinned_session_id:
+             _lt_discovered_sessions = ()
+             _lt_discovered_at = 0.0
+     except Exception as e:  # noqa: BLE001
+@@ -395,6 +399,7 @@ def _release_session(unit: PipelineUnit, session_id: str) -> None:
+     SESSION_END, and spawns the drain-and-release task — the unit stays
+     claimed until SESSION_END propagates back to output_queue.
+     """
++    _lt_session_bindings.pop(session_id, None)
+     old_session = unit.session
+     if old_session is None:
+         # Already released (e.g. duplicate close callbacks racing).
+@@ -425,6 +430,26 @@ async def _dispatch_client_event(
+     ``output_audio_buffer.clear`` is WebRTC-only (over WebSocket the unplayed
+     audio sits client-side).
+     """
++    if raw.get("type") == "livetalking.session.update":
++        avatar_session_id = str(raw.get("sessionid", "")).strip()
++        valid = avatar_session_id and len(avatar_session_id) <= 128 and all(
++            char.isalnum() or char in "-_." for char in avatar_session_id
++        )
++        if not valid:
++            await transport.send_events(
++                [
++                    unit.service.make_error(
++                        "Invalid Livetalking session id", "invalid_livetalking_session"
++                    )
++                ]
++            )
++            return
++        _lt_session_bindings[session_id] = avatar_session_id
++        logger.info(
++            f"Bound s2s session {session_id} to Livetalking session {avatar_session_id}"
++        )
++        return
++
+     service = unit.service
+     event = service.parse_client_event(raw)
+     if event is None:
+@@ -954,6 +979,8 @@ def create_app(pool: list[PipelineUnit], stop_event: ThreadingEvent) -> FastAPI:
+                         await transport.send_audio_chunk(unit.service, session_id, bytes(audio_batch))
+                         # Livetalking lip-sync bridge: mirror the same PCM to the
+                         # avatar so the digital human's mouth follows the audio.
+-                        await _forward_audio_to_livetalking(bytes(audio_batch))
++                        await _forward_audio_to_livetalking(
++                            bytes(audio_batch), _lt_session_bindings.get(session_id, "")
++                        )
+                 except Empty:
+                     pass

@@ -9,17 +9,18 @@
   <img src="https://img.shields.io/github/v/release/HeiXia2077/live-avatar?label=release" alt="Release">
 </p>
 
-一个完全本地运行的**中文语音对话数字人**。你对着麦克风说话，本地大模型用中文回答，声音被实时合成，同时驱动一个 3D 数字人做**口型同步**，数字人画面铺满整个网页作为背景 —— 就像在和一个真人视频通话。
+一个以本地推理为主的**中文语音对话数字人**。你对着麦克风说话，本地大模型用中文回答，声音被实时合成，同时驱动一个 3D 数字人做**口型同步**，数字人画面铺满整个网页作为背景 —— 就像在和一个真人视频通话。TTS 可选择完全本地方案，也可切换到 MiniMax 云端流式语音以获得更自然的中文音色。
 
 ![架构图](./docs/architecture.md)
 
 ## 特性
 
-- 🗣️ **全本地推理** — LLM（Qwen3.5 9B，llama.cpp）与语音管线全部运行在你自己的 GPU 上，无需联网、无 API 费用。
+- 🗣️ **本地优先，可选云端 TTS** — LLM（Qwen，llama.cpp）在本机运行；TTS 可用 Windows/Qwen3-TTS，或选用 MiniMax 流式语音。
 - 👄 **数字人口型同步** — 回复音频实时转发给 [LiveTalking](https://gitee.com/lipku/LiveTalking)（wav2lip），驱动数字人口型。
 - 🖥 **整页全屏数字人背景** — 数字人视频作为页面背景铺满全屏，UI（说话按钮、输入框）悬浮其上，沉浸感强。
 - 🎯 **中文优先** — STT(faster-whisper)、LLM、TTS 全链路中文优化。
 - 🔌 **一键启动** — 4 个服务（LLM → 数字人 → 语音管线 → 网页）自动按依赖顺序拉起。
+- ✅ **刷新即最新版** — 网页资源禁止浏览器缓存；托管重启会加载本机配置，并在交付前跑完整对话与连接释放验收。
 
 ## 架构
 
@@ -34,7 +35,7 @@
                                      `/humanpcm`
 ```
 
-**对话流程**：你说中文 → VAD 检测语音 → faster-whisper 转写中文 → llama.cpp 生成中文回复 → Qwen3-TTS 合成语音 → 同一份音频推给 LiveTalking `/humanpcm` → 浏览器播放数字人的 WebRTC 音轨并同步口型。
+**对话流程**：你说中文 → VAD 检测语音 → faster-whisper 转写中文 → llama.cpp 生成中文回复 → Windows、Qwen3-TTS 或 MiniMax 合成语音 → 同一份音频推给 LiveTalking `/humanpcm` → 浏览器播放数字人的 WebRTC 音轨并同步口型。
 
 ## 快速开始
 
@@ -51,26 +52,59 @@ start_all.bat
 
 打开 <http://127.0.0.1:7860> ，点击中间的圆球开始说话。
 
+已经配置过本机环境时，修改代码后的标准交付命令是：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\restart_runtime.ps1 -All -Verify -Conversation
+```
+
+命令成功后，浏览器普通刷新即可加载当前版本，无需 `Ctrl+F5`。
+
 ## 仓库结构
 
 ```
 live-avatar/
 ├── scripts/          # 参数化启动脚本
 │   ├── config.local.bat.example # 本机路径配置模板
+│   ├── install_windows_tts.ps1  # 安装 Windows 系统女声后端
+│   ├── install_minimax_tts.ps1  # 安装 MiniMax 流式 TTS 后端
 │   ├── start_all.bat         # 一键启动（推荐）
 │   ├── start_llama.bat       # llama.cpp LLM
 │   ├── start_s2s.bat         # speech-to-speech 管线
 │   ├── start_demo.bat        # 网页 UI
-│   └── start_livetalking.bat # 数字人服务
+│   ├── start_livetalking.bat # 数字人服务
+│   ├── restart_runtime.ps1   # 按配置托管重启，避免旧进程继续服务
+│   ├── verify_deployment.ps1 # 四服务、缓存、语音与口型链路验收
+│   └── smoke_test.py         # 端到端对话及 S2S 槽位释放测试
 ├── patches/                  # 对上游仓库的改动（patch）
 │   ├── s2s-integration.patch        # s2s：转发桥/web集成/中文STT
-│   └── livetalking-integration.patch# LiveTalking：/humanpcm 路由、loopback规避
+│   ├── s2s-livetalking-session-binding.patch # 当前页面数字人会话精确绑定
+│   ├── s2s-text-send-autostart.patch # s2s：文字发送自动建立会话
+│   ├── s2s-minimax-voice-selector.patch # s2s：MiniMax 音色下拉选择
+│   ├── s2s-no-cache.patch     # demo：普通刷新也强制获取最新前端
+│   ├── livetalking-integration.patch# LiveTalking：/humanpcm 路由、loopback规避
+│   └── livetalking-session-cleanup.patch # 断开的 WebRTC 会话及时释放
+├── integrations/s2s/          # Windows / MiniMax TTS 适配器源码
 ├── web/embed.html            # 数字人全屏嵌入页（自研）
 ├── docs/DEPLOYMENT.md        # 详细部署教程 + 注意事项
 └── LICENSE                   # MIT
 ```
 
 > 上传音色需要语音克隆 Base 模型；默认 CustomVoice 模型只能选择内置 speaker。详细配置和 Wav2Lip 输入尺寸注意事项见[部署教程](docs/DEPLOYMENT.md#7-常见问题与注意事项)。
+
+## 上游同步
+
+本仓库由 `angelash/live-avatar` 维护，并保留原项目 `HeiXia2077/live-avatar` 为 `upstream`。同步原项目更新时使用：
+
+```bash
+git fetch upstream
+git switch -c sync/upstream-YYYYMMDD
+git merge upstream/master
+# 解决冲突并完成验证后，推送到自己的仓库
+git push -u origin sync/upstream-YYYYMMDD
+```
+
+`upstream` 仅用于拉取更新，不要向它推送维护提交。
 
 ## 依赖（上游项目）
 

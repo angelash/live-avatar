@@ -1,0 +1,26 @@
+diff --git a/demo/server.py b/demo/server.py
+--- a/demo/server.py
++++ b/demo/server.py
+@@ -130,6 +130,22 @@ UPLOAD_DIR = os.path.join(HERE, "uploads")
+ os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+ app = FastAPI(title="s2s-demo")
++
++
++@app.middleware("http")
++async def disable_frontend_cache(request: Request, call_next):
++    """Always serve the local UI from disk after a browser refresh.
++
++    This project patches upstream JavaScript frequently while keeping the same
++    filenames.  A normal refresh must therefore never reuse an older HTML,
++    JavaScript, CSS, or worklet response from the browser cache.
++    """
++    response = await call_next(request)
++    if not request.url.path.startswith("/api/"):
++        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
++        response.headers["Pragma"] = "no-cache"
++        response.headers["Expires"] = "0"
++    return response
+
+ # Wire HF OAuth before the app serves (no-op unless the OAuth env is present).
+ # Sign-in only matters when we're metering (prod Space), so gate it on that.

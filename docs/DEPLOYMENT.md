@@ -156,6 +156,12 @@ cd C:\LiveTalking
 cd C:\s2s
 rem 确保工作树干净（.venv 目录除外，它已被 gitignore）
 git apply C:\live-avatar\patches\s2s-integration.patch
+git apply C:\live-avatar\patches\s2s-text-send-autostart.patch
+git apply C:\live-avatar\patches\s2s-livetalking-session-binding.patch
+git apply C:\live-avatar\patches\s2s-minimax-voice-selector.patch
+git apply C:\live-avatar\patches\s2s-no-cache.patch
+powershell -ExecutionPolicy Bypass -File C:\live-avatar\scripts\install_windows_tts.ps1 -S2SDir C:\s2s
+powershell -ExecutionPolicy Bypass -File C:\live-avatar\scripts\install_minimax_tts.ps1 -S2SDir C:\s2s
 ```
 
 该补丁修改了这些文件：
@@ -168,18 +174,24 @@ git apply C:\live-avatar\patches\s2s-integration.patch
 | `src/.../VAD/vad_handler.py` | 静音/语音阈值优化 |
 | `demo/index.html`, `style.css` | 嵌入数字人 iframe，全屏背景布局 |
 | `demo/server.py`, `ws/s2s-ws-client.js`, `ui/chat.js` | 前端 WS 连接与转发配置 |
+| `src/.../TTS/windows_tts_handler.py` | Windows System.Speech 女声适配器，输出 16kHz PCM |
+| `src/.../TTS/minimax_tts_handler.py` | MiniMax T2A v2 真流式适配器，直接输出 16kHz PCM |
+| `demo/server.py` | 为前端资源设置 `Cache-Control: no-store`，普通刷新直接加载当前版本 |
 
 ### 4.2 LiveTalking 补丁（/humanpcm 流式接口 + 本机监听）
 
 ```bat
 cd C:\LiveTalking
 git apply C:\live-avatar\patches\livetalking-integration.patch
+git apply C:\live-avatar\patches\livetalking-session-cleanup.patch
 ```
 
 | 文件 | 改动内容 |
 |------|----------|
 | `server/routes.py` | **新增 `/humanpcm` 路由**：接收裸 int16 PCM 流，按 20ms 切块驱动口型 |
 | `app.py`, `config.py` | 新增 `--listenhost` 参数（本机监听安全加固） |
+| `server/rtc_manager.py` | 浏览器刷新或关闭后释放 WebRTC 与数字人会话，避免历史会话持续占资源 |
+| `app.py` | `embed.html` 等网页资源禁止缓存，普通刷新获取当前版本 |
 
 **放置自研嵌入页**：
 
@@ -234,6 +246,15 @@ start_all.bat
 
 脚本会依次启动 4 个服务（各开一个窗口）。
 
+本机配置完成后，日常修改与交付推荐使用托管重启。它会精确关闭并重新拉起受影响的旧进程，避免出现“文件已改、端口仍由旧版本提供服务”：
+
+```powershell
+cd C:\live-avatar
+powershell -ExecutionPolicy Bypass -File .\scripts\restart_runtime.ps1 -All -Verify -Conversation
+```
+
+只有命令完整成功才算部署完成。成功后浏览器普通刷新即可，不需要清缓存或强制刷新。
+
 ### 6.2 确认服务就绪
 
 ```bat
@@ -267,6 +288,14 @@ curl http://127.0.0.1:8010/api/admin/sessions
 rem 查看 s2s 转发日志是否指向同一个 sessionid：
 findstr "humanpcm" C:\s2s\s2s_err.log
 ```
+
+也可以单独执行标准验收：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\verify_deployment.ps1 -Conversation
+```
+
+它会检查四个端口各只有一个监听进程、`LIVETALKING_URL`、网页禁止缓存、当前 MiniMax 音色、LLM 健康状态、真实语音字节、`/humanpcm` 转发，以及测试关闭后第二个 S2S 连接是否能成功。测试连接会自动关闭，不会占住唯一管线槽。
 
 ---
 
@@ -335,6 +364,56 @@ findstr "humanpcm" C:\s2s\s2s_err.log
 
 本集成使用的 v2 Wav2Lip 权重不能直接接收默认的 96×96 avatar 人脸裁剪；推理输入必须在 `wav2lip_avatar.py` 中 resize 到 **256×256**。256 是该 v2 网络 encoder/decoder skip connection 都匹配的尺寸；不要改用 384，也不要切换到仓库内不匹配的 v1 架构。
 
+### 7.12 使用 Windows 自带女声降低延迟
+
+在 `config.local.bat` 中设置：
+
+```bat
+set "TTS_ENGINE=windows"
+set "WINDOWS_TTS_VOICE=Microsoft Huihui Desktop"
+set "WINDOWS_TTS_RATE=-1"
+set "WINDOWS_TTS_VOLUME=95"
+```
+
+Windows TTS 不占用 CUDA 显存，适合 8GB 显卡。`RATE` 范围是 `-10` 到 `10`；数值越小越慢。可用 PowerShell 的 `System.Speech.Synthesis.SpeechSynthesizer.GetInstalledVoices()` 查看本机可用声音。
+
+### 7.13 使用 MiniMax 流式中文女声
+
+先运行集成安装器：
+
+```bat
+powershell -ExecutionPolicy Bypass -File C:\live-avatar\scripts\install_minimax_tts.ps1 -S2SDir C:\s2s
+```
+
+然后在被 Git 忽略的 `scripts\config.local.bat` 中添加配置。API Key 只放在本机，不要提交或粘贴到聊天、日志中：
+
+```bat
+set "TTS_ENGINE=minimax"
+set "MINIMAX_API_KEY=your-minimax-api-key"
+set "MINIMAX_TTS_MODEL=speech-2.8-turbo"
+set "MINIMAX_TTS_BASE_URL=https://api.minimaxi.com/v1/t2a_v2"
+set "MINIMAX_TTS_VOICE=Chinese (Mandarin)_Gentle_Senior"
+set "MINIMAX_TTS_SPEED=1.0"
+set "MINIMAX_TTS_VOLUME=1.0"
+set "MINIMAX_TTS_PITCH=0"
+set "MINIMAX_TTS_EMOTION="
+set "MINIMAX_TTS_BLOCKSIZE=320"
+```
+
+国内开放平台密钥使用 `https://api.minimaxi.com/v1/t2a_v2`；国际站密钥改为 `https://api.minimax.io/v1/t2a_v2`。密钥和区域不匹配时，MiniMax 会返回 `2049 invalid api key`。
+
+可优先试听这些普通话系统音色：
+
+- `Chinese (Mandarin)_Gentle_Senior`：温柔学姐
+- `Chinese (Mandarin)_Warm_Girl`：温暖少女
+- `Chinese (Mandarin)_Soft_Girl`：柔和少女
+- `qiaopi_mengmei`：俏皮萌妹
+- `wumei_yujie`：妩媚御姐
+
+部署 `s2s-minimax-voice-selector.patch` 后，网页右上角齿轮的“MiniMax 音色”可直接切换以上五种音色；点“保存”后从下一句话生效，已有对话无需断开或重启。`MINIMAX_TTS_VOICE` 只负责首次打开页面及不支持音色的回退值。
+
+适配器请求 `16kHz / 单声道 / PCM16`，每收到一个 SSE 音频块就立即送入网页和 `/humanpcm`，不会等待整句话生成完成。`MINIMAX_TTS_BLOCKSIZE=320` 与 LiveTalking 的 20ms 音频帧严格对齐，避免丢样造成爆音、断续和语速异常，不要改成 512。支持打断，并会在首个音频块到达前对瞬时网络错误重试一次。可选环境变量包括 `MINIMAX_TTS_EMOTION`、`MINIMAX_TTS_PITCH`、`MINIMAX_TTS_VOLUME`、`MINIMAX_TTS_MAX_RETRIES` 和连接/读取超时。
+
 ---
 
 ## 8. 自研组件详解
@@ -346,9 +425,21 @@ findstr "humanpcm" C:\s2s\s2s_err.log
 | `scripts/start_demo.bat` | 网页服务 |
 | `scripts/start_livetalking.bat` | 数字人服务（本机监听） |
 | `scripts/start_all.bat` | 一键启动，读取本机配置 |
+| `scripts/restart_runtime.ps1` | 托管重启受影响服务，并可串联完整验收 |
+| `scripts/verify_deployment.ps1` | 部署、缓存、TTS、口型转发与连接释放检查 |
+| `scripts/smoke_test.py` | 真实发起一轮文本对话，并用第二条连接证明 S2S 槽位已释放 |
 | `scripts/config.local.bat.example` | 本机路径配置模板；复制为 `config.local.bat` 后填写 |
 | `patches/s2s-integration.patch` | s2s 集成改动（转发桥、网页集成、中文优化） |
+| `patches/s2s-text-send-autostart.patch` | 文本发送时自动建立对话会话 |
+| `patches/s2s-livetalking-session-binding.patch` | 把当前页面的数字人 session 精确绑定到 S2S，避免口型发到旧页面 |
+| `patches/s2s-minimax-voice-selector.patch` | 设置页 MiniMax 中文女声音色选择，下一句话即时生效 |
+| `patches/s2s-no-cache.patch` | 禁止 demo 前端缓存，普通刷新获取当前版本 |
+| `scripts/install_windows_tts.ps1` | 安装 Windows System.Speech TTS 后端 |
+| `integrations/s2s/windows_tts_handler.py` | Windows 女声适配器实现 |
+| `scripts/install_minimax_tts.ps1` | 安装并注册 MiniMax 流式 TTS 后端 |
+| `integrations/s2s/minimax_tts_handler.py` | MiniMax T2A v2 SSE/PCM 适配器实现 |
 | `patches/livetalking-integration.patch` | LiveTalking 改动（`/humanpcm` 接口、监听加固） |
+| `patches/livetalking-session-cleanup.patch` | 断线时释放 WebRTC 和数字人会话 |
 | `web/embed.html` | 数字人全屏背景嵌入页 |
 
 ### 转发桥原理
@@ -360,7 +451,8 @@ s2s TTS 音频 → POST /humanpcm?sessionid=<活跃会话> → LiveTalking 按 2
 ```
 
 - 由 `LIVETALKING_URL` 环境变量控制开关（不设置则完全不影响原 s2s 行为）
-- 自动发现数字人活跃会话，2 秒 TTL + 业务错误重发现，页面刷新后仍能跟踪新会话
+- 嵌入页通过 `postMessage` 把当前数字人 session 绑定到 S2S 连接，只驱动用户正在看的页面；旧客户端没有发送绑定时回退到最新活跃会话
+- 自动发现数字人活跃会话，2 秒 TTL + 业务错误重发现；`LIVETALKING_SESSION_ID` 仍可作为运维侧的固定会话覆盖
 - 失败仅记 debug 日志，不影响语音主链路
 
 ### 嵌入页原理

@@ -10,6 +10,7 @@ rem    LLM_MODEL_GGUF  - path to the GGUF model file
 rem  Optional:
 rem    LLM_CTX_SIZE    - context window (default 8192)
 rem    LLM_ALIAS       - model alias (default qwen3.5-9b)
+rem    LLM_GPU_LAYERS  - layers offloaded to GPU (default 999 = all)
 rem ============================================================
 @echo off
 chcp 65001 > nul
@@ -31,13 +32,15 @@ set LLM_CTX_SIZE=%LLM_CTX_SIZE: =%
 if "%LLM_CTX_SIZE%"=="" set LLM_CTX_SIZE=8192
 set LLM_ALIAS=%LLM_ALIAS: =%
 if "%LLM_ALIAS%"=="" set LLM_ALIAS=qwen3.5-9b
+set LLM_GPU_LAYERS=%LLM_GPU_LAYERS: =%
+if "%LLM_GPU_LAYERS%"=="" set LLM_GPU_LAYERS=999
 
 cd /d "%LLAMA_CPP_DIR%"
 echo Starting llama-server (%LLM_ALIAS%) on :8080 ...
 start "llama-server" llama-server.exe ^
   -m "%LLM_MODEL_GGUF%" ^
   --host 127.0.0.1 --port 8080 ^
-  --n-gpu-layers 999 ^
+  --n-gpu-layers %LLM_GPU_LAYERS% ^
   --ctx-size %LLM_CTX_SIZE% ^
   --parallel 1 ^
   --reasoning off ^

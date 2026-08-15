@@ -1,0 +1,45 @@
+diff --git a/server/rtc_manager.py b/server/rtc_manager.py
+--- a/server/rtc_manager.py
++++ b/server/rtc_manager.py
+@@ -45,7 +45,11 @@ class RTCManager:
+         @pc.on("connectionstatechange")
+         async def on_connectionstatechange():
+             logger.info("Connection state is %s", pc.connectionState)
+-            if pc.connectionState in ("failed", "closed"):
++            # A browser refresh normally reaches "disconnected" rather than
++            # "closed" on the server.  Keeping that session would leak the
++            # avatar and eventually exhaust max_session, so local disconnects
++            # must release their session immediately.
++            if pc.connectionState in ("disconnected", "failed", "closed"):
+                 await pc.close()
+                 self.pcs.discard(pc)
+                 session_manager.remove_session(sessionid)
+diff --git a/app.py b/app.py
+--- a/app.py
++++ b/app.py
+@@ -108,5 +108,14 @@ async def on_shutdown(app):
+     await rtc_manager.shutdown()
+
++@web.middleware
++async def no_store_frontend_middleware(request, handler):
++    response = await handler(request)
++    if request.method == "GET" and not request.path.startswith("/api/"):
++        response.headers["Cache-Control"] = "no-store, must-revalidate, no-cache, max-age=0"
++        response.headers["Pragma"] = "no-cache"
++        response.headers["Expires"] = "0"
++    return response
++
+ async def download_record(request):
+     sessionid = request.match_info.get('sessionid')
+     if not sessionid:
+@@ -174,6 +183,9 @@ def main():
+
+     #############################################################################
+-    appasync = web.Application(client_max_size=1024**2*100)
++    appasync = web.Application(
++        client_max_size=1024**2*100,
++        middlewares=[no_store_frontend_middleware],
++    )
+     appasync["llm_response"] = llm_response
+     appasync["opt"] = opt
+     appasync["rtc_manager"] = rtc_manager

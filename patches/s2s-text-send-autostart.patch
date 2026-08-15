@@ -1,0 +1,45 @@
+diff --git a/demo/main.js b/demo/main.js
+--- a/demo/main.js
++++ b/demo/main.js
+@@ -1596,15 +1596,33 @@ try {
+   if (textInput && sendBtn) {
++    const waitForConversationReady = async () => {
++      const deadline = Date.now() + 45_000;
++      while (!client || !LIVE_STATES.has(currentState)) {
++        if (currentState === "error") throw new Error("Conversation failed to start");
++        if (Date.now() >= deadline) throw new Error("Conversation did not finish starting");
++        await new Promise((resolve) => setTimeout(resolve, 100));
++      }
++    };
++
+-    const doSendText = (/** @type {string} */ text) => {
++    const doSendText = async (/** @type {string} */ text) => {
+       if (!text) return;
+-      if (!client) {
+-        setCaption("Start a conversation first", "");
+-        return;
++      sendBtn.disabled = true;
++      try {
++        if (!client) {
++          if (missingServerUrl()) { promptServerUrl(); return; }
++          setCaption("Starting conversation…", "muted");
++          await doStart();
++        }
++        await waitForConversationReady();
++        client.sendUserText(text);
++        chat.onTranscript({ role: "user", text, partial: false });
++        textInput.value = "";
++      } catch (err) {
++        await handleStartError(err);
++      } finally {
++        sendBtn.disabled = false;
+       }
+-      client.sendUserText(text);
+-      chat.onTranscript({ role: "user", text, partial: false });
+-      textInput.value = "";
+     };
+-    const onTextSend = () => doSendText(textInput.value.trim());
++    const onTextSend = () => { void doSendText(textInput.value.trim()); };
+     textInput.addEventListener("keydown", (e) => {
+       if (e.key === "Enter") {
+         e.preventDefault();

@@ -33,3 +33,5 @@ Thumbs.db
 # Patch artifacts
 *.orig
 *.rej
+.codex-temp/
+.codex-apply/
